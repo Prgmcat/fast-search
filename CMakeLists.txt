@@ -65,5 +65,23 @@ add_executable(fastsearch
 )
 target_link_libraries(fastsearch PRIVATE fastsearch_core third_party)
 
+# ---------- GUI executable (Windows only, WebView2) ----------
+if(WIN32)
+    add_executable(fastsearch-gui WIN32 src/gui/gui_main.cpp)
+    target_include_directories(fastsearch-gui PRIVATE third_party/webview2)
+    target_link_directories(fastsearch-gui PRIVATE third_party/webview2)
+    target_link_libraries(fastsearch-gui PRIVATE WebView2Loader shlwapi shell32)
+    target_compile_definitions(fastsearch-gui PRIVATE
+        _WIN32_WINNT=0x0A00
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+    )
+    add_custom_command(TARGET fastsearch-gui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/third_party/webview2/WebView2Loader.dll"
+            "$<TARGET_FILE_DIR:fastsearch-gui>/WebView2Loader.dll"
+    )
+endif()
+
 # ---------- install ----------
 install(TARGETS fastsearch fastsearch-server RUNTIME DESTINATION bin)
