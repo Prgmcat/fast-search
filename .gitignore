@@ -55,3 +55,5 @@ fastsearch-service.log
 tmp_*
 *.tmp
 *.bak
+__pycache__/
+res/_step*.png

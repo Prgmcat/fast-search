@@ -32,6 +32,19 @@ static ComPtr<ICoreWebView2> g_webview;
 static HWND g_hwnd = nullptr;
 static std::wstring g_url = L"http://127.0.0.1:9800";
 
+// ── Tray / hide-to-tray state ────────────────────────────────
+// Closing the main window hides it to the notification area; the process
+// only truly exits when the user picks "退出程序" from the tray menu.
+constexpr UINT WM_TRAYICON       = WM_APP + 1;
+constexpr UINT IDM_TRAY_SHOW     = 0x9001;
+constexpr UINT IDM_TRAY_EXIT     = 0x9002;
+constexpr UINT TRAY_UID          = 1;
+
+static NOTIFYICONDATAW g_nid = {};
+static bool g_tray_installed = false;
+static bool g_really_exit    = false;
+static bool g_first_hide     = true;
+
 // Live IContextMenu2/3 pointers while a shell popup menu is being tracked.
 // Set right before TrackPopupMenuEx, cleared immediately after. The window
 // procedure forwards menu-related messages to these while they are alive so
@@ -453,6 +466,71 @@ static void show_shell_context_menu(HWND hwnd, const std::wstring& path_in,
     CoTaskMemFree(pidl);
 }
 
+// ── Tray icon helpers ────────────────────────────────────────
+
+static void install_tray_icon(HWND hwnd, HINSTANCE inst) {
+    if (g_tray_installed) return;
+    g_nid = {};
+    g_nid.cbSize = sizeof(g_nid);
+    g_nid.hWnd = hwnd;
+    g_nid.uID = TRAY_UID;
+    g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    g_nid.uCallbackMessage = WM_TRAYICON;
+    g_nid.hIcon = static_cast<HICON>(LoadImageW(
+        inst, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR));
+    if (!g_nid.hIcon) g_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    wcscpy_s(g_nid.szTip, L"FastSearch");
+    Shell_NotifyIconW(NIM_ADD, &g_nid);
+    g_nid.uVersion = NOTIFYICON_VERSION_4;
+    Shell_NotifyIconW(NIM_SETVERSION, &g_nid);
+    g_tray_installed = true;
+}
+
+static void remove_tray_icon() {
+    if (!g_tray_installed) return;
+    Shell_NotifyIconW(NIM_DELETE, &g_nid);
+    g_tray_installed = false;
+}
+
+static void show_main_window(HWND hwnd) {
+    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+    else                ShowWindow(hwnd, SW_SHOW);
+    SetForegroundWindow(hwnd);
+}
+
+// Show a balloon tip the first time the user minimizes to tray so they
+// realize the app is still running in the notification area.
+static void hint_tray_balloon() {
+    if (!g_tray_installed) return;
+    NOTIFYICONDATAW nid = g_nid;
+    nid.uFlags = NIF_INFO;
+    wcscpy_s(nid.szInfoTitle, L"FastSearch");
+    wcscpy_s(nid.szInfo, L"已最小化到托盘，右键图标可恢复或退出。");
+    nid.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+}
+
+static void show_tray_menu(HWND hwnd) {
+    POINT pt;
+    GetCursorPos(&pt);
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    AppendMenuW(menu, MF_STRING, IDM_TRAY_SHOW, L"打开窗口");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, IDM_TRAY_EXIT, L"退出程序");
+    SetMenuDefaultItem(menu, IDM_TRAY_SHOW, FALSE);
+    // Per MSDN: foreground the owner window so the menu dismisses correctly
+    // when the user clicks elsewhere. Post WM_NULL afterwards for the same.
+    SetForegroundWindow(hwnd);
+    TrackPopupMenuEx(menu,
+                     TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_RIGHTALIGN,
+                     pt.x, pt.y, hwnd, nullptr);
+    PostMessageW(hwnd, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+}
+
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     // Forward menu messages to the live shell context menu (if any) so shell
     // extensions with submenus / owner-draw items work correctly.
@@ -480,7 +558,44 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         mmi->ptMinTrackSize.y = 480;
         return 0;
     }
+    case WM_CLOSE:
+        // Clicking the window's close button hides to the tray instead of
+        // quitting. Real exit only happens via the tray menu's "退出程序".
+        if (!g_really_exit) {
+            ShowWindow(hwnd, SW_HIDE);
+            if (g_first_hide) {
+                g_first_hide = false;
+                hint_tray_balloon();
+            }
+            return 0;
+        }
+        break;
+    case WM_TRAYICON:
+        switch (LOWORD(lp)) {
+        case WM_LBUTTONDBLCLK:
+        case NIN_SELECT:
+        case NIN_KEYSELECT:
+            show_main_window(hwnd);
+            return 0;
+        case WM_CONTEXTMENU:
+        case WM_RBUTTONUP:
+            show_tray_menu(hwnd);
+            return 0;
+        }
+        return 0;
+    case WM_COMMAND:
+        switch (LOWORD(wp)) {
+        case IDM_TRAY_SHOW:
+            show_main_window(hwnd);
+            return 0;
+        case IDM_TRAY_EXIT:
+            g_really_exit = true;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        break;
     case WM_DESTROY:
+        remove_tray_icon();
         PostQuitMessage(0);
         return 0;
     }
@@ -538,6 +653,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     ShowWindow(g_hwnd, nShow);
     UpdateWindow(g_hwnd);
+
+    install_tray_icon(g_hwnd, hInst);
 
     init_webview(g_hwnd);
 
