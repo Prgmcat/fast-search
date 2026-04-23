@@ -9,6 +9,26 @@ namespace fastsearch {
 
 // ── helpers for advanced filtering ──
 
+// Translate glob-style wildcards (`*`, `?`) into a SQL LIKE pattern so we can
+// reuse the case-insensitive (ASCII) behavior of LIKE. Existing `%`, `_`, and
+// `\` characters in the query are escaped so they match literally. The caller
+// must pair this with ``LIKE ? ESCAPE '\\'``.
+static std::string glob_to_like(const std::string& glob) {
+    std::string like;
+    like.reserve(glob.size() + 8);
+    for (char c : glob) {
+        switch (c) {
+            case '*': like += '%'; break;
+            case '?': like += '_'; break;
+            case '%': like += "\\%"; break;
+            case '_': like += "\\_"; break;
+            case '\\': like += "\\\\"; break;
+            default: like += c; break;
+        }
+    }
+    return like;
+}
+
 static std::string build_filter_sql(const SearchOptions& opts, const std::string& prefix = "") {
     std::string sql;
     std::string p = prefix.empty() ? "" : prefix + ".";
@@ -220,11 +240,15 @@ std::vector<FileRecord> Database::search_by_name(const SearchOptions& opts) {
 
     std::string sql = "SELECT id,name,path,parent_dir,size,modified,is_dir,ext FROM files WHERE 1=1";
 
+    bool has_wildcards =
+        opts.query.find('*') != std::string::npos ||
+        opts.query.find('?') != std::string::npos;
+
     if (!opts.query.empty()) {
         if (opts.regex)
             sql += " AND name REGEXP ?";
-        else if (opts.query.find('*') != std::string::npos || opts.query.find('?') != std::string::npos)
-            sql += " AND name GLOB ?";
+        else if (has_wildcards)
+            sql += " AND name LIKE ? ESCAPE '\\'";
         else
             sql += " AND name LIKE ?";
     }
@@ -237,9 +261,12 @@ std::vector<FileRecord> Database::search_by_name(const SearchOptions& opts) {
 
     int idx = 1;
     if (!opts.query.empty()) {
-        if (opts.regex || opts.query.find('*') != std::string::npos || opts.query.find('?') != std::string::npos)
+        if (opts.regex) {
             sqlite3_bind_text(stmt, idx++, opts.query.c_str(), -1, SQLITE_TRANSIENT);
-        else {
+        } else if (has_wildcards) {
+            std::string like = glob_to_like(opts.query);
+            sqlite3_bind_text(stmt, idx++, like.c_str(), -1, SQLITE_TRANSIENT);
+        } else {
             std::string like = "%" + opts.query + "%";
             sqlite3_bind_text(stmt, idx++, like.c_str(), -1, SQLITE_TRANSIENT);
         }

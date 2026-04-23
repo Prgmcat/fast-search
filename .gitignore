@@ -1,0 +1,57 @@
+# ---- build output ----
+build/
+cmake-build-*/
+out/
+bin/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.o
+*.a
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+compile_commands.json
+
+# ---- Visual Studio / Windows ----
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.*
+*.suo
+*.user
+Debug/
+Release/
+x64/
+x86/
+
+# ---- editors / tooling ----
+.vscode/
+.idea/
+.clangd/
+.cache/
+
+# ---- macOS / Linux ----
+.DS_Store
+Thumbs.db
+
+# ---- runtime / local data ----
+index.db
+index.db-journal
+*.log
+fastsearch-service.log
+
+# ---- ad-hoc scratch / temp ----
+tmp_*
+*.tmp
+*.bak

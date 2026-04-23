@@ -5,6 +5,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Treat source files as UTF-8 and emit UTF-8 in narrow string literals, so
+# embedded Chinese strings (used in the web UI, menus, etc.) aren't mangled
+# by the host ANSI code page (GBK on this machine).
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # ---------- SQLite3 (compiled as C) ----------
 add_library(sqlite3 STATIC third_party/sqlite3.c)
 target_include_directories(sqlite3 PUBLIC third_party)
@@ -67,15 +74,21 @@ target_link_libraries(fastsearch PRIVATE fastsearch_core third_party)
 
 # ---------- GUI executable (Windows only, WebView2) ----------
 if(WIN32)
-    add_executable(fastsearch-gui WIN32 src/gui/gui_main.cpp)
-    target_include_directories(fastsearch-gui PRIVATE third_party/webview2)
+    add_executable(fastsearch-gui WIN32
+        src/gui/gui_main.cpp
+        src/gui/fastsearch.rc
+    )
+    target_include_directories(fastsearch-gui PRIVATE src/gui third_party/webview2)
     target_link_directories(fastsearch-gui PRIVATE third_party/webview2)
-    target_link_libraries(fastsearch-gui PRIVATE WebView2Loader shlwapi shell32)
+    target_link_libraries(fastsearch-gui PRIVATE WebView2Loader shlwapi shell32 ole32 uuid)
     target_compile_definitions(fastsearch-gui PRIVATE
         _WIN32_WINNT=0x0A00
         NOMINMAX
         WIN32_LEAN_AND_MEAN
     )
+    if(MSVC)
+        target_compile_options(fastsearch-gui PRIVATE /utf-8)
+    endif()
     add_custom_command(TARGET fastsearch-gui POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_SOURCE_DIR}/third_party/webview2/WebView2Loader.dll"
