@@ -27,6 +27,11 @@ static const wchar_t* WINDOW_TITLE = L"FastSearch";
 static const int DEFAULT_WIDTH = 1100;
 static const int DEFAULT_HEIGHT = 750;
 
+// Single instance: a second process posts this to the first instance's HWND.
+static const wchar_t* SINGLETON_MSG_NAME = L"FastSearch_GUISingletonActivate_v1";
+static const wchar_t* SINGLETON_MUTEX_NAME = L"Local\\FastSearch-9E0C4A1B-3F8D-4E2A-9B7C-GUISingleton";
+static UINT g_wm_singleton_activate = 0;
+
 static ComPtr<ICoreWebView2Controller> g_controller;
 static ComPtr<ICoreWebView2> g_webview;
 static HWND g_hwnd = nullptr;
@@ -81,9 +86,32 @@ static void resize_webview(HWND hwnd) {
     g_controller->put_Bounds(rc);
 }
 
+// WebView2 must write profile/cache to a *user-writable* folder. When
+// `userDataFolder` is null, the runtime defaults to a subfolder next to
+// the executable (e.g. `fastsearch-gui.exe.WebView2`). That path lives under
+// `Program Files` when installed, where normal users cannot create files —
+// `CreateCoreWebView2Environment` then fails and the view stays black.
+// Keep data under %LocalAppData%\FastSearch\WebView2Data (same as dev runs).
+static std::wstring s_webview_user_data;
+static const wchar_t* make_webview_user_data_path() {
+    WCHAR base[MAX_PATH] = L"";
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, base)))
+        return nullptr;
+    std::wstring app_root = std::wstring(base) + L"\\FastSearch";
+    if (!CreateDirectoryW(app_root.c_str(), nullptr)) {
+        if (GetLastError() != ERROR_ALREADY_EXISTS) return nullptr;
+    }
+    s_webview_user_data = app_root + L"\\WebView2Data";
+    if (!CreateDirectoryW(s_webview_user_data.c_str(), nullptr)) {
+        if (GetLastError() != ERROR_ALREADY_EXISTS) return nullptr;
+    }
+    return s_webview_user_data.c_str();
+}
+
 static void init_webview(HWND hwnd) {
+    const wchar_t* user_data = make_webview_user_data_path();
     CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, nullptr, nullptr,
+        nullptr, user_data, nullptr,
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [hwnd](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(hr) || !env) return hr;
@@ -495,9 +523,11 @@ static void remove_tray_icon() {
 }
 
 static void show_main_window(HWND hwnd) {
+    if (!IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_SHOW);
     if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-    else                ShowWindow(hwnd, SW_SHOW);
+    else ShowWindow(hwnd, SW_SHOW);
     SetForegroundWindow(hwnd);
+    BringWindowToTop(hwnd);
 }
 
 // Show a balloon tip the first time the user minimizes to tray so they
@@ -546,6 +576,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (SUCCEEDED(g_cm2->HandleMenuMsg(msg, wp, lp)))
                 return (msg == WM_INITMENUPOPUP) ? 0 : TRUE;
         }
+    }
+
+    if (g_wm_singleton_activate != 0 && msg == g_wm_singleton_activate) {
+        show_main_window(hwnd);
+        return 0;
     }
 
     switch (msg) {
@@ -616,6 +651,27 @@ static void parse_args() {
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    g_wm_singleton_activate = RegisterWindowMessageW(SINGLETON_MSG_NAME);
+    if (g_wm_singleton_activate == 0) return 1;
+
+    HANDLE instance_mutex = CreateMutexW(nullptr, FALSE, SINGLETON_MUTEX_NAME);
+    if (!instance_mutex) return 1;
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        for (int n = 0; n < 50; n++) {
+            HWND other = FindWindowW(WINDOW_CLASS, WINDOW_TITLE);
+            if (other) {
+                PostMessageW(other, g_wm_singleton_activate, 0, 0);
+                CloseHandle(instance_mutex);
+                return 0;
+            }
+            Sleep(100);
+        }
+        CloseHandle(instance_mutex);
+        return 0;
+    }
+    // First instance: keep the mutex object alive until the process exits.
+
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
     parse_args();

@@ -128,7 +128,10 @@ Filename: "{app}\{#MyServerExe}"; Parameters: "--uninstall"; \
 ; Leave the user's index.db / logs alone by default — deleting them here
 ; would be data-loss on reinstalls. If the user wants a full wipe they
 ; can remove %ProgramData%\FastSearch manually.
+; WebView2: older builds used a subfolder of Program Files; new code uses
+; %LocalAppData%\FastSearch\WebView2Data (writable for non-admin users).
 Type: filesandordirs; Name: "{app}\fastsearch-gui.exe.WebView2"
+Type: filesandordirs; Name: "{localappdata}\FastSearch\WebView2Data"
 
 [Code]
 { ── system PATH handling ───────────────────────────────────────────── }

@@ -10,7 +10,7 @@
 - **实时文件监控** - 自动检测文件变更，增量更新索引（支持多路径并发监控）
 - **离线变更同步** - 服务重启时自动同步离线期间的文件增删改
 - **Web UI** - 现代暗色紧凑主题，结果列表占据主视野，实时搜索
-- **桌面 GUI** - WebView2 打包的独立桌面应用（Windows），集成原生系统右键菜单
+- **桌面 GUI** - WebView2 独立应用（Windows），原生右键菜单；**单例**（再次启动只把已有窗口置前，含托盘恢复）；用户数据在 `%LocalAppData%\FastSearch\WebView2Data`，避免装在 `Program Files` 时黑屏
 - **原生右键菜单** - 与资源管理器一致的 shell 菜单（打开 / 属性 / 发送到 / 删除 等均支持），额外置顶了"打开路径"与"复制文件路径和文件名"
 - **原地重命名** - 右键重命名在列表行内直接进入编辑态（类似 Everything / Explorer F2），默认只选中主名，基于 `IFileOperation` 写回，支持 UAC 提权与资源管理器的 `Ctrl+Z` 撤销
 - **CLI** - 命令行快速搜索
@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File installer\build_installer.ps1 -SkipBuil
 - 选择是否注册 `FastSearchService`（默认勾选，开机自启并立即启动）
 - 选择是否创建桌面快捷方式（默认勾选）
 - 选择是否将安装目录加入系统 `PATH`（默认不勾选）
-- 卸载时自动停止并反注册服务、清理 WebView2 用户数据（索引数据库和日志保留）
+- 卸载时自动停止并反注册服务、清理旧版 `Program Files` 下及 `%LocalAppData%` 中的 WebView2 数据目录（索引数据库和日志仍保留在各自配置路径）
 
 ## 使用
 
@@ -120,6 +120,10 @@ sc query FastSearchService
 ### 桌面 GUI
 
 双击 `fastsearch-gui.exe` 打开桌面窗口（需要 server 正在运行）。
+
+WebView2 用户数据目录为 `%LocalAppData%\FastSearch\WebView2Data`（**不是**安装目录下的 `*.WebView2`），以便在 `Program Files` 安装时普通用户也能写入缓存与配置，避免界面黑屏。
+
+**单例**：再次运行 `fastsearch-gui`（或点击快捷方式）时不会启动第二进程，而是将已有主窗口**置于前台**（含最小化到任务栏/隐藏到托盘的恢复）。
 
 ```bash
 # 连接到自定义地址
