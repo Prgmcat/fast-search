@@ -55,6 +55,32 @@ GUI 图标位于 `res/`：
 - `res/fastsearch.ico` - 打包进可执行文件的多分辨率 ICO（由 `src/gui/fastsearch.rc` 引用）
 - `res/build_icon.py` - 从原图生成多尺寸 ICO 的辅助脚本（依赖 Pillow）
 
+### Windows 安装包
+
+项目自带基于 **Inno Setup 6** 的 Windows 安装包脚本，位于 `installer/`：
+
+- `installer/fastsearch.iss` - 安装程序脚本（中英双语、支持服务注册、PATH、桌面 / 开始菜单快捷方式）
+- `installer/build_installer.ps1` - 一键构建：重新编译 Release → 调用 `ISCC` 生成安装包
+- `installer/LICENSE.txt` / `readme-before-install.txt` - 向导里展示的许可 / 说明页
+- `installer/dist/` - 输出目录（已在 `.gitignore` 中忽略）
+
+构建方式：
+
+```powershell
+# 首次会自动通过 winget 安装 Inno Setup 6（如已装则跳过）
+powershell -ExecutionPolicy Bypass -File installer\build_installer.ps1
+
+# 若已有 Release 产物、只想重打安装包
+powershell -ExecutionPolicy Bypass -File installer\build_installer.ps1 -SkipBuild
+```
+
+产物为 `installer/dist/FastSearch-Setup-<version>.exe`。安装向导支持：
+
+- 选择是否注册 `FastSearchService`（默认勾选，开机自启并立即启动）
+- 选择是否创建桌面快捷方式（默认勾选）
+- 选择是否将安装目录加入系统 `PATH`（默认不勾选）
+- 卸载时自动停止并反注册服务、清理 WebView2 用户数据（索引数据库和日志保留）
+
 ## 使用
 
 ### 启动 Server（控制台模式）

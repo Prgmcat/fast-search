@@ -57,3 +57,6 @@ tmp_*
 *.bak
 __pycache__/
 res/_step*.png
+
+# ---- installer output ----
+installer/dist/
